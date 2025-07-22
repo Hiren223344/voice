@@ -91,6 +91,14 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x100c14);
 
+    // Add some ambient lighting to make the sphere more visible
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(5, 5, 5);
+    scene.add(directionalLight);
+
     const backdrop = new THREE.Mesh(
       new THREE.IcosahedronGeometry(10, 5),
       new THREE.RawShaderMaterial({
@@ -125,22 +133,15 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
     const geometry = new THREE.IcosahedronGeometry(1, 10);
 
-    new EXRLoader().load('piz_compressed.exr', (texture: THREE.Texture) => {
-      texture.mapping = THREE.EquirectangularReflectionMapping;
-      const exrCubeRenderTarget = pmremGenerator.fromEquirectangular(texture);
-      sphereMaterial.envMap = exrCubeRenderTarget.texture;
-      sphere.visible = true;
-    });
-
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
 
     const sphereMaterial = new THREE.MeshStandardMaterial({
-      color: 0x000010,
+      color: 0x4a90e2,
       metalness: 0.5,
       roughness: 0.1,
-      emissive: 0x000010,
-      emissiveIntensity: 1.5,
+      emissive: 0x1a4480,
+      emissiveIntensity: 0.3,
     });
 
     sphereMaterial.onBeforeCompile = (shader) => {
@@ -155,9 +156,24 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
     const sphere = new THREE.Mesh(geometry, sphereMaterial);
     scene.add(sphere);
-    sphere.visible = false;
+    sphere.visible = true;
 
     this.sphere = sphere;
+
+    // Try to load EXR texture, but don't depend on it for visibility
+    new EXRLoader().load(
+      'piz_compressed.exr', 
+      (texture: THREE.Texture) => {
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        const exrCubeRenderTarget = pmremGenerator.fromEquirectangular(texture);
+        sphereMaterial.envMap = exrCubeRenderTarget.texture;
+        sphereMaterial.needsUpdate = true;
+      },
+      undefined,
+      (error) => {
+        console.log('EXR texture failed to load, using default material');
+      }
+    );
 
     const renderPass = new RenderPass(scene, camera);
 
