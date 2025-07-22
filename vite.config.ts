@@ -24,3 +24,4 @@ export default defineConfig(({ mode }) => {
     }
   };
 });
+// This configuration file sets up Vite for a project, defining environment variables,
