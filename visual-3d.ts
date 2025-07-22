@@ -159,12 +159,19 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     scene.background = new THREE.Color(0x100c14);
 
     // Add some ambient lighting to make the sphere more visible
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+    const ambientLight = new THREE.AmbientLight(0x404040, 1.0);
     scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
     directionalLight.position.set(5, 5, 5);
+    directionalLight.lookAt(0, 0, 0);
     scene.add(directionalLight);
+
+    // Add a second light from the opposite side
+    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight2.position.set(-5, -5, -5);
+    directionalLight2.lookAt(0, 0, 0);
+    scene.add(directionalLight2);
 
     const backdrop = new THREE.Mesh(
       new THREE.IcosahedronGeometry(10, 5),
@@ -188,7 +195,8 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       0.1,
       1000,
     );
-    camera.position.set(2, -2, 5);
+    camera.position.set(0, 0, 3);
+    camera.lookAt(0, 0, 0);
     this.camera = camera;
 
     const renderer = new THREE.WebGLRenderer({
@@ -206,20 +214,20 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
     // Create sphere material for user input
     this.sphereMaterial = new THREE.MeshStandardMaterial({
-      color: 0x4a90e2,
-      metalness: 0.5,
-      roughness: 0.1,
-      emissive: 0x1a4480,
-      emissiveIntensity: 0.3,
+      color: 0x00aaff,
+      metalness: 0.3,
+      roughness: 0.4,
+      emissive: 0x0066cc,
+      emissiveIntensity: 0.5,
     });
 
     // Create wave material for AI output
     this.waveMaterial = new THREE.MeshStandardMaterial({
-      color: 0xe24a90,
-      metalness: 0.7,
-      roughness: 0.2,
-      emissive: 0x801a44,
-      emissiveIntensity: 0.4,
+      color: 0xff4488,
+      metalness: 0.3,
+      roughness: 0.4,
+      emissive: 0xcc2266,
+      emissiveIntensity: 0.5,
     });
 
     this.sphereMaterial.onBeforeCompile = (shader) => {
@@ -243,8 +251,9 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     };
 
     const sphere = new THREE.Mesh(geometry, this.sphereMaterial);
-    scene.add(sphere);
+    sphere.position.set(0, 0, 0);
     sphere.visible = true;
+    scene.add(sphere);
 
     this.sphere = sphere;
 
@@ -258,10 +267,11 @@ export class GdmLiveAudioVisuals3D extends LitElement {
         this.waveMaterial.envMap = exrCubeRenderTarget.texture;
         this.sphereMaterial.needsUpdate = true;
         this.waveMaterial.needsUpdate = true;
+        console.log('EXR texture loaded successfully');
       },
       undefined,
       (error) => {
-        console.log('EXR texture failed to load, using default material');
+        console.log('EXR texture failed to load, using default material', error);
       }
     );
 
@@ -333,6 +343,10 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     } else if (!this.isAISpeaking && this.sphere.material !== this.sphereMaterial) {
       this.sphere.material = this.sphereMaterial;
     }
+
+    // Ensure sphere is always visible and at origin
+    this.sphere.visible = true;
+    this.sphere.position.set(0, 0, 0);
 
     const t = performance.now();
     const dt = (t - this.prevTime) / (1000 / 60);
