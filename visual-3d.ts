@@ -21,6 +21,69 @@ import {FXAAShader} from 'three/addons/shaders/FXAAShader.js';
 import {fs as backdropFS, vs as backdropVS} from './backdrop-shader';
 import {vs as sphereVS} from './sphere-shader';
 
+// Add wave shader for AI response visualization
+const waveVS = `#define STANDARD
+varying vec3 vViewPosition;
+#ifdef USE_TRANSMISSION
+  varying vec3 vWorldPosition;
+#endif
+#include <common>
+#include <batching_pars_vertex>
+#include <uv_pars_vertex>
+#include <displacementmap_pars_vertex>
+#include <color_pars_vertex>
+#include <fog_pars_vertex>
+#include <normal_pars_vertex>
+#include <morphtarget_pars_vertex>
+#include <skinning_pars_vertex>
+#include <shadowmap_pars_vertex>
+#include <logdepthbuf_pars_vertex>
+#include <clipping_planes_pars_vertex>
+
+uniform float time;
+uniform vec4 outputData;
+uniform float waveIntensity;
+
+vec3 calcWave(vec3 pos) {
+  vec3 dir = normalize(pos);
+  float wave1 = sin(pos.y * 8.0 + time * 3.0) * outputData.x * waveIntensity;
+  float wave2 = sin(pos.x * 6.0 + time * 2.5) * outputData.y * waveIntensity;
+  float wave3 = sin(pos.z * 10.0 + time * 4.0) * outputData.z * waveIntensity;
+  
+  return pos + dir * (wave1 + wave2 + wave3) * 0.3;
+}
+
+void main() {
+  #include <uv_vertex>
+  #include <color_vertex>
+  #include <morphinstance_vertex>
+  #include <morphcolor_vertex>
+  #include <batching_vertex>
+  #include <beginnormal_vertex>
+  #include <morphnormal_vertex>
+  #include <skinbase_vertex>
+  #include <skinnormal_vertex>
+  #include <defaultnormal_vertex>
+  #include <normal_vertex>
+  #include <begin_vertex>
+
+  transformed = calcWave(position);
+
+  #include <morphtarget_vertex>
+  #include <skinning_vertex>
+  #include <displacementmap_vertex>
+  #include <project_vertex>
+  #include <logdepthbuf_vertex>
+  #include <clipping_planes_vertex>
+  vViewPosition = - mvPosition.xyz;
+  #include <worldpos_vertex>
+  #include <shadowmap_vertex>
+  #include <fog_vertex>
+  #ifdef USE_TRANSMISSION
+    vWorldPosition = worldPosition.xyz;
+  #endif
+}`;
+
 /**
  * 3D live audio visual.
  */
@@ -32,6 +95,10 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   private backdrop!: THREE.Mesh;
   private composer!: EffectComposer;
   private sphere!: THREE.Mesh;
+  private waveMaterial!: THREE.MeshStandardMaterial;
+  private sphereMaterial!: THREE.MeshStandardMaterial;
+  private isAISpeaking = false;
+  private aiSpeakingTimeout: number | null = null;
   private prevTime = 0;
   private rotation = new THREE.Vector3(0, 0, 0);
 
@@ -131,12 +198,14 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio / 1);
 
-    const geometry = new THREE.IcosahedronGeometry(1, 10);
+    // Use sphere geometry for perfect circle
+    const geometry = new THREE.SphereGeometry(1, 64, 32);
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
 
-    const sphereMaterial = new THREE.MeshStandardMaterial({
+    // Create sphere material for user input
+    this.sphereMaterial = new THREE.MeshStandardMaterial({
       color: 0x4a90e2,
       metalness: 0.5,
       roughness: 0.1,
@@ -144,17 +213,36 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       emissiveIntensity: 0.3,
     });
 
-    sphereMaterial.onBeforeCompile = (shader) => {
+    // Create wave material for AI output
+    this.waveMaterial = new THREE.MeshStandardMaterial({
+      color: 0xe24a90,
+      metalness: 0.7,
+      roughness: 0.2,
+      emissive: 0x801a44,
+      emissiveIntensity: 0.4,
+    });
+
+    this.sphereMaterial.onBeforeCompile = (shader) => {
       shader.uniforms.time = {value: 0};
       shader.uniforms.inputData = {value: new THREE.Vector4()};
       shader.uniforms.outputData = {value: new THREE.Vector4()};
 
-      sphereMaterial.userData.shader = shader;
+      this.sphereMaterial.userData.shader = shader;
 
       shader.vertexShader = sphereVS;
     };
 
-    const sphere = new THREE.Mesh(geometry, sphereMaterial);
+    this.waveMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.time = {value: 0};
+      shader.uniforms.outputData = {value: new THREE.Vector4()};
+      shader.uniforms.waveIntensity = {value: 1.0};
+
+      this.waveMaterial.userData.shader = shader;
+
+      shader.vertexShader = waveVS;
+    };
+
+    const sphere = new THREE.Mesh(geometry, this.sphereMaterial);
     scene.add(sphere);
     sphere.visible = true;
 
@@ -166,8 +254,10 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       (texture: THREE.Texture) => {
         texture.mapping = THREE.EquirectangularReflectionMapping;
         const exrCubeRenderTarget = pmremGenerator.fromEquirectangular(texture);
-        sphereMaterial.envMap = exrCubeRenderTarget.texture;
-        sphereMaterial.needsUpdate = true;
+        this.sphereMaterial.envMap = exrCubeRenderTarget.texture;
+        this.waveMaterial.envMap = exrCubeRenderTarget.texture;
+        this.sphereMaterial.needsUpdate = true;
+        this.waveMaterial.needsUpdate = true;
       },
       undefined,
       (error) => {
@@ -223,51 +313,87 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     this.inputAnalyser.update();
     this.outputAnalyser.update();
 
+    // Detect AI speaking based on output data
+    const outputLevel = this.outputAnalyser.data[0] + this.outputAnalyser.data[1] + this.outputAnalyser.data[2];
+    const inputLevel = this.inputAnalyser.data[0] + this.inputAnalyser.data[1] + this.inputAnalyser.data[2];
+    
+    if (outputLevel > 30) {
+      this.isAISpeaking = true;
+      if (this.aiSpeakingTimeout) {
+        clearTimeout(this.aiSpeakingTimeout);
+      }
+      this.aiSpeakingTimeout = window.setTimeout(() => {
+        this.isAISpeaking = false;
+      }, 200);
+    }
+
+    // Switch materials based on who's speaking
+    if (this.isAISpeaking && this.sphere.material !== this.waveMaterial) {
+      this.sphere.material = this.waveMaterial;
+    } else if (!this.isAISpeaking && this.sphere.material !== this.sphereMaterial) {
+      this.sphere.material = this.sphereMaterial;
+    }
+
     const t = performance.now();
     const dt = (t - this.prevTime) / (1000 / 60);
     this.prevTime = t;
     const backdropMaterial = this.backdrop.material as THREE.RawShaderMaterial;
-    const sphereMaterial = this.sphere.material as THREE.MeshStandardMaterial;
 
     backdropMaterial.uniforms.rand.value = Math.random() * 10000;
 
-    if (sphereMaterial.userData.shader) {
-      this.sphere.scale.setScalar(
-        1 + (0.2 * this.outputAnalyser.data[1]) / 255,
-      );
-
-      const f = 0.001;
-      this.rotation.x += (dt * f * 0.5 * this.outputAnalyser.data[1]) / 255;
-      this.rotation.z += (dt * f * 0.5 * this.inputAnalyser.data[1]) / 255;
-      this.rotation.y += (dt * f * 0.25 * this.inputAnalyser.data[2]) / 255;
-      this.rotation.y += (dt * f * 0.25 * this.outputAnalyser.data[2]) / 255;
-
-      const euler = new THREE.Euler(
-        this.rotation.x,
-        this.rotation.y,
-        this.rotation.z,
-      );
-      const quaternion = new THREE.Quaternion().setFromEuler(euler);
-      const vector = new THREE.Vector3(0, 0, 5);
-      vector.applyQuaternion(quaternion);
-      this.camera.position.copy(vector);
-      this.camera.lookAt(this.sphere.position);
-
-      sphereMaterial.userData.shader.uniforms.time.value +=
-        (dt * 0.1 * this.outputAnalyser.data[0]) / 255;
-      sphereMaterial.userData.shader.uniforms.inputData.value.set(
-        (1 * this.inputAnalyser.data[0]) / 255,
-        (0.1 * this.inputAnalyser.data[1]) / 255,
-        (10 * this.inputAnalyser.data[2]) / 255,
-        0,
-      );
-      sphereMaterial.userData.shader.uniforms.outputData.value.set(
-        (2 * this.outputAnalyser.data[0]) / 255,
-        (0.1 * this.outputAnalyser.data[1]) / 255,
-        (10 * this.outputAnalyser.data[2]) / 255,
-        0,
-      );
+    if (this.isAISpeaking) {
+      // AI speaking - wave mode
+      this.sphere.scale.setScalar(1.2);
+      
+      if (this.waveMaterial.userData.shader) {
+        this.waveMaterial.userData.shader.uniforms.time.value += dt * 0.01;
+        this.waveMaterial.userData.shader.uniforms.outputData.value.set(
+          (2 * this.outputAnalyser.data[0]) / 255,
+          (2 * this.outputAnalyser.data[1]) / 255,
+          (2 * this.outputAnalyser.data[2]) / 255,
+          0,
+        );
+        this.waveMaterial.userData.shader.uniforms.waveIntensity.value = 
+          0.5 + (1.5 * outputLevel) / 765;
+      }
+      
+      // Gentle rotation for AI
+      this.rotation.y += dt * 0.001;
+    } else {
+      // User speaking or idle - sphere mode with scaling
+      const userScale = 1 + (0.5 * inputLevel) / 765;
+      this.sphere.scale.setScalar(userScale);
+      
+      if (this.sphereMaterial.userData.shader) {
+        this.sphereMaterial.userData.shader.uniforms.time.value += dt * 0.005;
+        this.sphereMaterial.userData.shader.uniforms.inputData.value.set(
+          (1 * this.inputAnalyser.data[0]) / 255,
+          (0.1 * this.inputAnalyser.data[1]) / 255,
+          (10 * this.inputAnalyser.data[2]) / 255,
+          0,
+        );
+        this.sphereMaterial.userData.shader.uniforms.outputData.value.set(0, 0, 0, 0);
+      }
+      
+      // More dynamic rotation when user speaks
+      if (inputLevel > 10) {
+        this.rotation.x += (dt * 0.002 * inputLevel) / 765;
+        this.rotation.z += (dt * 0.001 * inputLevel) / 765;
+      }
     }
+
+    // Apply camera rotation
+    const euler = new THREE.Euler(
+      this.rotation.x,
+      this.rotation.y,
+      this.rotation.z,
+    );
+    const quaternion = new THREE.Quaternion().setFromEuler(euler);
+    const vector = new THREE.Vector3(0, 0, 5);
+    vector.applyQuaternion(quaternion);
+    this.camera.position.copy(vector);
+    this.camera.lookAt(this.sphere.position);
+
 
     this.composer.render();
   }
