@@ -8,7 +8,7 @@ import {GoogleGenAI, LiveServerMessage, Modality, Session} from '@google/genai';
 import {LitElement, css, html} from 'lit';
 import {customElement, state} from 'lit/decorators.js';
 import {createBlob, decode, decodeAudioData} from './utils';
-import './visual-mobile';
+import './visual-mobile.ts';
 
 @customElement('gdm-live-audio')
 export class GdmLiveAudio extends LitElement {
@@ -153,7 +153,6 @@ export class GdmLiveAudio extends LitElement {
       text-align: center;
       z-index: 100;
       backdrop-filter: blur(10px);
-      display: ${this.status || this.error ? 'block' : 'none'};
     }
 
     .controls {
@@ -479,6 +478,7 @@ export class GdmLiveAudio extends LitElement {
         </div>
 
         <div class="status-message">
+        <div class="status-message" style="display: ${this.status || this.error ? 'block' : 'none'};">
           ${this.error || this.status}
         </div>
 
