@@ -31,19 +31,31 @@ export class GdmLiveAudio extends LitElement {
   private sources = new Set<AudioBufferSourceNode>();
 
   static styles = css`
+    :host {
+      width: 100%;
+      height: 100vh;
+      display: block;
+      overflow: hidden;
+    }
+
     #status {
       position: absolute;
-      bottom: 5vh;
+      bottom: 8vh;
       left: 0;
       right: 0;
       z-index: 10;
       text-align: center;
+      padding: 0 20px;
+      font-size: 14px;
+      color: white;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+      line-height: 1.4;
     }
 
     .controls {
       z-index: 10;
       position: absolute;
-      bottom: 10vh;
+      bottom: 15vh;
       left: 0;
       right: 0;
       display: flex;
@@ -51,6 +63,7 @@ export class GdmLiveAudio extends LitElement {
       justify-content: center;
       flex-direction: column;
       gap: 10px;
+      padding: 0 20px;
 
       button {
         outline: none;
@@ -58,20 +71,87 @@ export class GdmLiveAudio extends LitElement {
         color: white;
         border-radius: 12px;
         background: rgba(255, 255, 255, 0.1);
-        width: 64px;
-        height: 64px;
+        width: 56px;
+        height: 56px;
         cursor: pointer;
         font-size: 24px;
         padding: 0;
         margin: 0;
+        backdrop-filter: blur(10px);
+        transition: all 0.2s ease;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
 
         &:hover {
           background: rgba(255, 255, 255, 0.2);
+          transform: scale(1.05);
+        }
+
+        &:active {
+          transform: scale(0.95);
+          background: rgba(255, 255, 255, 0.3);
         }
       }
 
       button[disabled] {
         display: none;
+      }
+
+      svg {
+        pointer-events: none;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .controls {
+        bottom: 12vh;
+        gap: 15px;
+        
+        button {
+          width: 60px;
+          height: 60px;
+        }
+      }
+
+      #status {
+        bottom: 6vh;
+        font-size: 13px;
+        padding: 0 15px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .controls {
+        bottom: 10vh;
+        
+        button {
+          width: 64px;
+          height: 64px;
+        }
+      }
+
+      #status {
+        bottom: 4vh;
+        font-size: 12px;
+        padding: 0 10px;
+      }
+    }
+
+    @media (orientation: landscape) and (max-height: 500px) {
+      .controls {
+        bottom: 8vh;
+        flex-direction: row;
+        gap: 20px;
+        
+        button {
+          width: 48px;
+          height: 48px;
+        }
+      }
+
+      #status {
+        bottom: 3vh;
+        font-size: 11px;
       }
     }
   `;
@@ -177,13 +257,20 @@ export class GdmLiveAudio extends LitElement {
       return;
     }
 
+    // Resume audio context on user interaction (required for mobile)
     this.inputAudioContext.resume();
+    this.outputAudioContext.resume();
 
     this.updateStatus('Requesting microphone access...');
 
     try {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 16000
+        },
         video: false,
       });
 

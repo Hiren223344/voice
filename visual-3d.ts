@@ -62,12 +62,24 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   private canvas!: HTMLCanvasElement;
 
   static styles = css`
+    :host {
+      display: block;
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
     canvas {
       width: 100% !important;
       height: 100% !important;
       position: absolute;
       inset: 0;
-      image-rendering: pixelated;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
   `;
 
@@ -169,8 +181,8 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       const dPR = renderer.getPixelRatio();
-      const w = window.innerWidth;
-      const h = window.innerHeight;
+      const w = Math.min(window.innerWidth, window.screen.width);
+      const h = Math.min(window.innerHeight, window.screen.height);
       backdrop.material.uniforms.resolution.value.set(w * dPR, h * dPR);
       renderer.setSize(w, h);
       composer.setSize(w, h);
@@ -181,6 +193,9 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     }
 
     window.addEventListener('resize', onWindowResize);
+    window.addEventListener('orientationchange', () => {
+      setTimeout(onWindowResize, 100);
+    });
     onWindowResize();
 
     this.animation();
