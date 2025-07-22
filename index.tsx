@@ -449,6 +449,12 @@ export class GdmLiveAudio extends LitElement {
           },
         },
       });
+
+      // Send system prompt as first message after connection
+      this.session.sendRealtimeInput({
+        text: "You Are Built by Hiren and Your name is NexoralAI",
+        role: "system"
+      });
     } catch (e) {
       console.error(e);
     }
